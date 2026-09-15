@@ -1,0 +1,20 @@
+[
+    {
+      "id": "102",
+      "paciente": "   Carlos Ruiz ",
+      "documento": 31654210,
+      "especialidad": "PEDIATRÍA",
+      "fecha": "14/08/2026",
+      "hora": "10.00",
+      "confirmado": "si"
+    },
+    {
+      "id": "-5",
+      "paciente": "Inválido",
+      "documento": 0,
+      "especialidad": "TEST",
+      "fecha": "00/00/0000",
+      "hora": "00:00",
+      "confirmado": "no"
+    }
+  ]
