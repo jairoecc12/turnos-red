@@ -1,116 +1,66 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { Turno, TurnoCrudo } from '../models/turno.model.js';
-import { appEventEmitter } from './eventEmitter.js';
+import { Turno } from '../models/turno.model.js';
 
-/*
-  JUSTIFICACIÓN PROMESAS VS CALLBACKS (Requisito de la consigna):
-  Uso de async/await y Promesas (node:fs/promises):
-  - Evita el "Callback Hell" facilitando la lectura secuencial del código.
-  - El manejo de errores con try...catch centraliza las excepciones limpiamente.
-  
-  Ejemplo con Callback tradicional (node:fs):
-  fs.readFile(filePath, 'utf8', (err, data) => {
-    if (err) handleErr(err);
-    // Procesamiento...
-  });
-*/
+const filePath = path.resolve('src/data/turnos.json');
+
+async function getTurnosFromFile(): Promise<Turno[]> {
+  try {
+    const data = await fs.readFile(filePath, 'utf-8');
+    return JSON.parse(data);
+  } catch {
+    return [];
+  }
+}
+
+async function saveTurnosToFile(turnos: Turno[]): Promise<void> {
+  await fs.writeFile(filePath, JSON.stringify(turnos, null, 2), 'utf-8');
+}
 
 export class TurnoService {
-  private turnos: Turno[] = [];
-
-  constructor() {
-    this.cargarYNormalizarDatos();
-  }
-
-  private async cargarYNormalizarDatos(): Promise<void> {
-    try {
-      const dataPath = process.env.DATA_PATH || './src/data/turnos.json';
-      const data = await fs.readFile(path.resolve(dataPath), 'utf-8');
-      const turnosCrudos: TurnoCrudo[] = JSON.parse(data);
-
-      let aceptados = 0;
-      let rechazados = 0;
-
-      this.turnos = turnosCrudos
-        .map((crudo) => this.normalizarTurno(crudo))
-        .filter((turno): turno is Turno => {
-          if (turno !== null) {
-            aceptados++;
-            return true;
-          }
-          rechazados++;
-          return false;
-        });
-
-      console.log(`[Normalización] Registros aceptados: ${aceptados}, rechazados: ${rechazados}`);
-    } catch (error) {
-      console.error('Error al leer el archivo de turnos:', error);
-      this.turnos = [];
+  static async getAll(filters?: { especialidad?: string; fecha?: string; medicoId?: number }): Promise<Turno[]> {
+    let turnos = await getTurnosFromFile();
+    
+    if (filters?.especialidad) {
+      turnos = turnos.filter(t => t.especialidad.toLowerCase() === filters.especialidad?.toLowerCase());
     }
-  }
-
-  private normalizarTurno(crudo: TurnoCrudo): Turno | null {
-    const idNum = Number(crudo.id);
-
-    if (isNaN(idNum) || idNum <= 0 || !Number.isInteger(idNum)) {
-      return null;
+    if (filters?.fecha) {
+      turnos = turnos.filter(t => t.fecha === filters.fecha);
     }
-
-    const pacienteSanitizado = String(crudo.paciente || '').trim();
-    if (!pacienteSanitizado) return null;
-
-    const confirmadoBool =
-      typeof crudo.confirmado === 'boolean'
-        ? crudo.confirmado
-        : String(crudo.confirmado).trim().toLowerCase() === 'si' ||
-          String(crudo.confirmado).trim().toLowerCase() === 'true';
-
-    return {
-      id: idNum,
-      paciente: pacienteSanitizado,
-      documento: String(crudo.documento).trim(),
-      especialidad: String(crudo.especialidad).trim().toUpperCase(),
-      fecha: String(crudo.fecha).trim(),
-      hora: String(crudo.hora).trim().replace('.', ':'),
-      confirmado: confirmadoBool,
-    };
+    if (filters?.medicoId !== undefined && !isNaN(filters.medicoId)) {
+      turnos = turnos.filter(t => t.medicoId === filters.medicoId);
+    }
+    
+    return turnos;
   }
 
-  public getAll(): Turno[] {
-    return this.turnos;
+  static async getById(id: number): Promise<Turno | null> {
+    const turnos = await getTurnosFromFile();
+    return turnos.find(t => t.id === id) || null;
   }
 
-  public getById(id: number): Turno | undefined {
-    return this.turnos.find((t) => t.id === id);
+  static async create(data: Omit<Turno, 'id'>): Promise<Turno> {
+    const turnos = await getTurnosFromFile();
+    const newTurno: Turno = { id: Date.now(), ...data };
+    turnos.push(newTurno);
+    await saveTurnosToFile(turnos);
+    return newTurno;
   }
 
-  public create(nuevoTurno: Omit<Turno, 'id'>): Turno {
-    const nextId = this.turnos.length > 0 ? Math.max(...this.turnos.map((t) => t.id)) + 1 : 1;
-    const turnoGuardado: Turno = { id: nextId, ...nuevoTurno };
-    this.turnos.push(turnoGuardado);
-
-    appEventEmitter.emit('turno:creado', turnoGuardado);
-    return turnoGuardado;
-  }
-
-  public update(id: number, datosActualizados: Partial<Turno>): Turno | null {
-    const index = this.turnos.findIndex((t) => t.id === id);
+  static async update(id: number, data: Partial<Turno>): Promise<Turno | null> {
+    const turnos = await getTurnosFromFile();
+    const index = turnos.findIndex(t => t.id === id);
     if (index === -1) return null;
-
-    this.turnos[index] = { ...this.turnos[index], ...datosActualizados, id };
-    
-    appEventEmitter.emit('turno:actualizado', this.turnos[index]);
-    return this.turnos[index];
+    turnos[index] = { ...turnos[index], ...data };
+    await saveTurnosToFile(turnos);
+    return turnos[index];
   }
 
-  public delete(id: number): boolean {
-    const index = this.turnos.findIndex((t) => t.id === id);
-    if (index === -1) return false;
-
-    const turnoEliminado = this.turnos.splice(index, 1)[0];
-    
-    appEventEmitter.emit('turno:eliminado', turnoEliminado);
+  static async delete(id: number): Promise<boolean> {
+    const turnos = await getTurnosFromFile();
+    const filtered = turnos.filter(t => t.id !== id);
+    if (filtered.length === turnos.length) return false;
+    await saveTurnosToFile(filtered);
     return true;
   }
 }
